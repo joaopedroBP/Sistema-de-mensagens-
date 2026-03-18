@@ -1,0 +1,17 @@
+services:
+  servidor:
+    build: ./servidor
+    container_name: servidor
+    networks:
+      - msg_network
+
+  cliente:
+    build: ./cliente
+    container_name: cliente
+    depends_on:
+      - servidor
+    networks:
+      - msg_network
+
+networks:
+  msg_network:
