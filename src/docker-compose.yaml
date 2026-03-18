@@ -1,7 +1,18 @@
 services:
+  broker:
+    build: ./broker
+    container_name: broker
+    ports:
+      - "5555:5555"
+      - "5556:5556"
+    networks:
+      - msg_network
+
   servidor:
     build: ./servidor
     container_name: servidor
+    depends_on:
+      - broker
     networks:
       - msg_network
 

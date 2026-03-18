@@ -1,3 +1,13 @@
+FROM python:3.13.7-alpine3.21
+
+WORKDIR /app
+
+COPY . .
+
+RUN pip install pyzmq
+
+CMD ["python","servidor.py"]
+
 FROM alpine:3.21
 
 WORKDIR /app
