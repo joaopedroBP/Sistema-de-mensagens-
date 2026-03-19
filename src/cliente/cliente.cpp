@@ -2,6 +2,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include "message.pb.h"
 
 using namespace std;
 
@@ -9,26 +10,38 @@ int main() {
     zmq::context_t context(1);
 
     zmq::socket_t socket(context, zmq::socket_type::req);
-    socket.connect("tcp://broker:5555");
+    socket.connect("tcp://broker:5555");  // conecta na porta ROUTER do broker
 
     int i = 0;
 
     while (true) {
-        zmq::message_t request(5);
-        memcpy(request.data(), "Hello", 5);
+        chat::Message msg;
+        msg.set_type(chat::Message::LOGIN);
+        msg.set_username("joao");
+        msg.set_timestamp(time(nullptr));
 
-        std::cout << "Mensagem " << i << ": " << std::flush;
+        string serialized;
+        msg.SerializeToString(&serialized);
 
+        zmq::message_t request(serialized.size());
+        memcpy(request.data(), serialized.data(), serialized.size());
+
+        cout << "Enviando login " << i << "..." << endl;
+
+        // envia pro broker
         socket.send(request, zmq::send_flags::none);
 
+        // recebe resposta do broker
         zmq::message_t reply;
         socket.recv(reply, zmq::recv_flags::none);
 
-        std::string reply_str(static_cast<char*>(reply.data()), reply.size());
-        std::cout << reply_str << endl;
+        chat::Message response;
+        response.ParseFromArray(reply.data(), reply.size());
+
+        cout << "Resposta: " << response.message() << endl;
 
         i++;
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        this_thread::sleep_for(chrono::seconds(1));
     }
 
     return 0;

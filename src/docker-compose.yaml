@@ -1,28 +1,34 @@
 services:
   broker:
-    build: ./broker
+    build:
+      context: .
+      dockerfile: broker/Dockerfile
     container_name: broker
-    ports:
-      - "5555:5555"
-      - "5556:5556"
     networks:
       - msg_network
 
   servidor:
-    build: ./servidor
-    container_name: servidor
+    build:
+      context: .
+      dockerfile: servidor/Dockerfile
+    deploy:
+      replicas: 2 
     depends_on:
       - broker
     networks:
       - msg_network
 
   cliente:
-    build: ./cliente
-    container_name: cliente
+    build:
+      context: .
+      dockerfile: cliente/Dockerfile
+    deploy:
+      replicas: 2
     depends_on:
-      - servidor
+      - broker 
     networks:
       - msg_network
 
 networks:
   msg_network:
+    driver: bridge

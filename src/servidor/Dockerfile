@@ -2,10 +2,13 @@ FROM python:3.13.7-alpine3.21
 
 WORKDIR /app
 
-COPY . .
+RUN pip install --no-cache-dir pyzmq protobuf grpcio-tools
 
-RUN pip install pyzmq
+COPY common /app/common
+COPY servidor /app
 
-CMD ["python","servidor.py"]
+RUN python -m grpc_tools.protoc -I./common \
+    --python_out=. \
+    common/message.proto
 
-
+CMD ["python", "servidor.py"]
