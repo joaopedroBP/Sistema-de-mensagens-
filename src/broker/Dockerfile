@@ -2,10 +2,8 @@ FROM python:3.13.7-alpine3.21
 
 WORKDIR /app
 
-COPY . .
+COPY broker.py .
 
 RUN pip install pyzmq
 
-CMD ["python","servidor.py"]
-
-
+CMD ["python", "broker.py"]

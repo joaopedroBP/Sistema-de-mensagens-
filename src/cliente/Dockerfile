@@ -9,6 +9,6 @@ RUN git clone https://github.com/zeromq/cppzmq.git \
 
 COPY . .
 
-RUN g++ servidor.cpp -lzmq -o server
+RUN g++ cliente.cpp -lzmq -o cliente
 
-CMD ["./server"]
+CMD ["./cliente"]
