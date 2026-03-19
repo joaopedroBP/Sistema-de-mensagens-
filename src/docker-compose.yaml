@@ -7,25 +7,55 @@ services:
     networks:
       - msg_network
 
-  servidor:
+  servidor1:
     build:
       context: .
       dockerfile: servidor/Dockerfile
-    deploy:
-      replicas: 2 
+    container_name: servidor1
+    environment:
+      - SERVER_ID=1
+    volumes:
+      - ./data_srv1:/app/data
     depends_on:
       - broker
     networks:
       - msg_network
 
-  cliente:
+  servidor2:
+    build:
+      context: .
+      dockerfile: servidor/Dockerfile
+    container_name: servidor2
+    environment:
+      - SERVER_ID=2
+    volumes:
+      - ./data_srv2:/app/data
+    depends_on:
+      - broker
+    networks:
+      - msg_network
+
+  cliente1:
     build:
       context: .
       dockerfile: cliente/Dockerfile
-    deploy:
-      replicas: 2
+    container_name: cliente1
+    environment:
+      - BOT_NAME=Bot_Alpha
     depends_on:
-      - broker 
+      - broker
+    networks:
+      - msg_network
+
+  cliente2:
+    build:
+      context: .
+      dockerfile: cliente/Dockerfile
+    container_name: cliente2
+    environment:
+      - BOT_NAME=Bot_Beta
+    depends_on:
+      - broker
     networks:
       - msg_network
 

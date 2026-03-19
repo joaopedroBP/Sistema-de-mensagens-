@@ -2,7 +2,7 @@ import zmq
 
 context = zmq.Context()
 
-# Clientes conectam aqui (ROUTER preserva a identidade do cliente REQ)
+# Clientes conectam aqui 
 frontend = context.socket(zmq.ROUTER)
 frontend.bind("tcp://*:5555")
 
@@ -12,5 +12,4 @@ backend.bind("tcp://*:5556")
 
 print("Broker rodando (ROUTER <-> DEALER)...")
 
-# O proxy gerencia a passagem de mensagens e os IDs de retorno automaticamente
 zmq.proxy(frontend, backend)
