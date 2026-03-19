@@ -1,9 +1,0 @@
-[2026-03-19 20:57:31] LOGIN | User: Bot_Beta | Info: 
-[2026-03-19 20:57:31] LOGIN | User: Bot_Alpha | Info: 
-[2026-03-19 20:57:36] CHANNEL_CREATED | User: Bot_Beta | Info: canal_geral
-[2026-03-19 20:57:40] LOGIN | User: Bot_Beta | Info: 
-[2026-03-19 20:57:40] LOGIN | User: Bot_Alpha | Info: 
-[2026-03-19 20:57:45] CHANNEL_CREATED | User: Bot_Beta | Info: canal_geral
-[2026-03-19 21:12:30] LOGIN | User: Bot_Beta | Info: 
-[2026-03-19 21:12:30] LOGIN | User: Bot_Alpha | Info: 
-[2026-03-19 21:12:35] CHANNEL_CREATED | User: Bot_Beta | Info: canal_geral
