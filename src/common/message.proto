@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package chat;
+
+message Message {
+  enum Type {
+    LOGIN = 0;
+    CREATE_CHANNEL = 1;
+    LIST_CHANNELS = 2;
+    RESPONSE = 3;  
+  }
+
+  Type type = 1;
+  string username = 2;
+  string channel = 3;
+  string message = 4;        
+  int64 timestamp = 5;
+  repeated string channels = 6; // Lista de strings (exclusivo para o LIST_CHANNELS)
+}
