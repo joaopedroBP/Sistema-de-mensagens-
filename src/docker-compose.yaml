@@ -1,9 +1,17 @@
-services:
+services: 
   broker:
     build:
       context: .
       dockerfile: broker/Dockerfile
     container_name: broker
+    networks:
+      - msg_network
+
+  proxy_pubsub:
+    build:
+      context: ./proxy_pubsub
+      dockerfile: Dockerfile
+    container_name: proxy_pubsub
     networks:
       - msg_network
 
