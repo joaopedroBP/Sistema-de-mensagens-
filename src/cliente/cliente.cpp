@@ -38,19 +38,17 @@ int main() {
 
     zmq::context_t contexto(1);
     
-    // Socket REQ (Boca - fala com o broker)
+    // Socket REQ 
     zmq::socket_t socket_req(contexto, zmq::socket_type::req);
     socket_req.connect("tcp://broker:5555");
 
-    // Socket SUB (Ouvido - escuta o proxy)
+    // Socket SUB 
     zmq::socket_t socket_sub(contexto, zmq::socket_type::sub);
     socket_sub.connect("tcp://proxy_pubsub:5558");
 
-    // Pega o nome do bot do docker-compose
     const char* env_usuario = getenv("BOT_NAME");
     string usuario = (env_usuario) ? string(env_usuario) : "bot_" + to_string(getpid());
     
-    // --- LOGIN ---
     chat::Message requisicao;
     requisicao.set_username(usuario);
     requisicao.set_type(chat::Message::LOGIN);
@@ -58,7 +56,6 @@ int main() {
     enviar_requisicao(socket_req, requisicao);
     cout << ">>> " << usuario << " Logado com sucesso!" << endl;
 
-    // --- VARIÁVEIS DE CONTROLE DO LOOP DE EVENTOS ---
     EstadoBot estado_atual = SINCRONIZAR_CANAIS;
     vector<string> canais_disponiveis;
     vector<string> canais_inscritos;
@@ -66,24 +63,19 @@ int main() {
     int mensagens_enviadas = 0;
     string canal_alvo = "";
     
-    // Marca o relógio no passado para enviar a 1ª mensagem imediatamente
     auto ultimo_envio = chrono::steady_clock::now() - chrono::seconds(2); 
 
-    // --- O LOOP DE EVENTOS (A mágica assíncrona acontece aqui) ---
     while (true) {
         
-        // 1. OUVIR (Sempre checa o rádio primeiro, com dontwait para não travar)
         zmq::message_t mensagem_topico;
         if (socket_sub.recv(mensagem_topico, zmq::recv_flags::dontwait)) {
             zmq::message_t mensagem_dados;
             
-            // O "if" abaixo também silencia o compilador
             if (socket_sub.recv(mensagem_dados, zmq::recv_flags::none)) {} 
             
             chat::Message mensagem_publicada;
             mensagem_publicada.ParseFromArray(mensagem_dados.data(), mensagem_dados.size());
 
-            // Calcula o Timestamp de Recebimento no exato momento que chegou
             auto tempo_recebimento = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
 
             cout << "\n========================================" << endl;
@@ -96,7 +88,6 @@ int main() {
             cout << "========================================\n" << endl;
         }
 
-        // 2. AGIR (Máquina de estados para decidir o que fazer)
         switch (estado_atual) {
             case SINCRONIZAR_CANAIS: {
                 requisicao.set_type(chat::Message::LIST_CHANNELS);
@@ -111,14 +102,14 @@ int main() {
             }
 
             case AVALIAR_REGRAS: {
-                // REGRA 1: Menos de 5 canais? Cria um novo.
+                // REGRA 1.
                 if (canais_disponiveis.size() < 5) {
                     requisicao.set_type(chat::Message::CREATE_CHANNEL);
                     requisicao.set_channel("canal_" + to_string(rand() % 1000));
                     enviar_requisicao(socket_req, requisicao);
                     estado_atual = SINCRONIZAR_CANAIS; // Volta pra atualizar a lista
                 } 
-                // REGRA 2: Inscrito em menos de 3? Inscreve-se em um novo.
+                // REGRA 2.
                 else if (canais_inscritos.size() < 3) {
                     for (const auto& canal : canais_disponiveis) {
                         if (find(canais_inscritos.begin(), canais_inscritos.end(), canal) == canais_inscritos.end()) {
@@ -130,7 +121,7 @@ int main() {
                     }
                     estado_atual = SINCRONIZAR_CANAIS; 
                 } 
-                // REGRA 3: Tudo pronto? Prepara para atirar 10 mensagens.
+                // REGRA 3.
                 else {
                     canal_alvo = canais_disponiveis[rand() % canais_disponiveis.size()];
                     mensagens_enviadas = 0;
@@ -141,7 +132,6 @@ int main() {
             }
 
             case PUBLICANDO: {
-                // Checa o cronômetro: já passou 1 segundo (1000 milissegundos)?
                 auto agora = chrono::steady_clock::now();
                 auto tempo_passado = chrono::duration_cast<chrono::milliseconds>(agora - ultimo_envio).count();
 
@@ -165,8 +155,6 @@ int main() {
             }
         }
 
-        // Dá uma micro-pausa de 10 milissegundos usando a função raiz do Linux
-        // Isso evita que a CPU frite a 100% e bane o uso da palavra "thread"
         usleep(10000);
     }
 
