@@ -45,14 +45,15 @@ int main() {
     // Socket SUB 
     zmq::socket_t socket_sub(contexto, zmq::socket_type::sub);
     socket_sub.connect("tcp://proxy_pubsub:5558");
-
+    int counter = 0;
     const char* env_usuario = getenv("BOT_NAME");
     string usuario = (env_usuario) ? string(env_usuario) : "bot_" + to_string(getpid());
-    
+        
     chat::Message requisicao;
     requisicao.set_username(usuario);
     requisicao.set_type(chat::Message::LOGIN);
     requisicao.set_timestamp(time(nullptr));
+    requisicao.set_counter(counter);
     enviar_requisicao(socket_req, requisicao);
     cout << ">>> " << usuario << " Logado com sucesso!" << endl;
 
@@ -85,6 +86,7 @@ int main() {
             cout << "  Msg:      " << mensagem_publicada.message() << endl;
             cout << "  T. Envio: " << mensagem_publicada.timestamp() << endl;
             cout << "  T. Recv:  " << tempo_recebimento << endl;
+            cout << "  COUNT" << mensagem_publicada.counter() << endl;
             cout << "========================================\n" << endl;
         }
 
@@ -108,6 +110,7 @@ int main() {
                     requisicao.set_channel("canal_" + to_string(rand() % 1000));
                     enviar_requisicao(socket_req, requisicao);
                     estado_atual = SINCRONIZAR_CANAIS; // Volta pra atualizar a lista
+		    counter++;
                 } 
                 // REGRA 2.
                 else if (canais_inscritos.size() < 3) {
@@ -120,6 +123,7 @@ int main() {
                         }
                     }
                     estado_atual = SINCRONIZAR_CANAIS; 
+		    counter++;
                 } 
                 // REGRA 3.
                 else {
@@ -127,6 +131,7 @@ int main() {
                     mensagens_enviadas = 0;
                     cout << "\n>>> " << usuario << " iniciando 10 publicacoes no [" << canal_alvo << "]\n" << endl;
                     estado_atual = PUBLICANDO;
+		    counter++;
                 }
                 break;
             }

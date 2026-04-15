@@ -9,6 +9,7 @@ message Message {
     LIST_CHANNELS = 2;
     RESPONSE = 3;  
     PUBLISH = 4;
+    CONT = 5;
   }
 
   Type type = 1;
@@ -17,4 +18,5 @@ message Message {
   string message = 4;        
   int64 timestamp = 5;
   repeated string channels = 6; // Lista de strings (exclusivo para o LIST_CHANNELS)
+  int64 counter = 7;
 }

@@ -24,7 +24,7 @@ socket_pub = context.socket(zmq.PUB)
 socket_pub.connect("tcp://proxy_pubsub:5557")
 
 channels = set()
-
+counter = 0
 print(f"--- Servidor {SERVER_ID} Iniciado (REP: broker, PUB: proxy_pubsub) ---")
 
 while True:
@@ -37,22 +37,26 @@ while True:
     res.timestamp = int(time.time())
     res.type = message_pb2.Message.RESPONSE
     res.username = req.username
+    res.counter = counter
     
     if req.type == message_pb2.Message.LOGIN:
         save_event("LOGIN", req.username)
         res.message = "LOGIN_OK"
+        counter += 1
 
     elif req.type == message_pb2.Message.CREATE_CHANNEL:
         if req.channel and req.channel not in channels:
             channels.add(req.channel)
             save_event("CHANNEL_CREATED", req.username, req.channel)
             res.message = "CHANNEL_OK"
+            counter += 1
         else:
             res.message = "ERROR: Channel already exists or invalid"
 
     elif req.type == message_pb2.Message.LIST_CHANNELS:
         res.channels.extend(list(channels))
         res.message = "LIST_OK"
+        counter += 1
 
     elif req.type == message_pb2.Message.PUBLISH:
         print(f"[{SERVER_ID}] Recebeu msg de {req.username} para o canal {req.channel}")
@@ -65,6 +69,7 @@ while True:
             socket_pub.send_multipart([topic, raw_data])
             
             res.message = "PUBLISH_OK"
+            counter += 1
         else:
             res.message = "ERROR: Channel does not exist"
 
