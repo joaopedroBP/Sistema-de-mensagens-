@@ -1,77 +1,162 @@
 #include <zmq.hpp>
 #include <iostream>
-#include <thread>
 #include <chrono>
 #include <unistd.h>
+#include <vector>
+#include <algorithm>
+#include <cstdlib>
+#include <ctime>
 #include "message.pb.h"
 
 using namespace std;
 
-// Função para exibir as trocas de mensagens de forma legível 
-void log_message(const string& action, const chat::Message& msg) {
-    cout << "\n========================================" << endl;
-    cout << "  " << action << endl;
-    cout << "----------------------------------------" << endl;
-    cout << "  User:      " << msg.username() << endl;
-    cout << "  Status:    " << msg.message() << endl;
-    cout << "  Timestamp: " << msg.timestamp() << endl;
+// Função auxiliar para enviar e receber o padrão REQ/REP
+chat::Message enviar_requisicao(zmq::socket_t& socket, chat::Message& requisicao) {
+    string serializada;
+    requisicao.SerializeToString(&serializada);
+    socket.send(zmq::buffer(serializada), zmq::send_flags::none);
+
+    zmq::message_t resposta_bruta;
     
-    if (msg.channels_size() > 0) {
-        cout << "  Canais Disponíveis:" << endl;
-        for(int i = 0; i < msg.channels_size(); i++) {
-            cout << "    - " << msg.channels(i) << endl;
-        }
-    }
-    cout << "========================================\n" << endl;
+    // O "if" vazio engana o compilador e silencia os erros de segurança do ZeroMQ
+    if (socket.recv(resposta_bruta, zmq::recv_flags::none)) {}
+
+    chat::Message resposta;
+    resposta.ParseFromArray(resposta_bruta.data(), resposta_bruta.size());
+    return resposta;
 }
 
-int main() {
-    zmq::context_t context(1);
-    zmq::socket_t socket(context, zmq::socket_type::req);
-    socket.connect("tcp://broker:5555");
+// Estados da nossa Máquina de Estados principal
+enum EstadoBot {
+    SINCRONIZAR_CANAIS,
+    AVALIAR_REGRAS,
+    PUBLICANDO
+};
 
-    // Tenta ler o nome definido no docker-compose, se não existir usa o PID
-    const char* env_user = getenv("BOT_NAME");
-    string user = (env_user) ? string(env_user) : "bot_cpp_" + to_string(getpid());
+int main() {
+    srand(time(nullptr)); // Inicializa o gerador de números aleatórios
+
+    zmq::context_t contexto(1);
     
-    int state = 0; 
-    cout << ">>> " << user << " iniciado e aguardando broker..." << endl;
+    // Socket REQ 
+    zmq::socket_t socket_req(contexto, zmq::socket_type::req);
+    socket_req.connect("tcp://broker:5555");
+
+    // Socket SUB 
+    zmq::socket_t socket_sub(contexto, zmq::socket_type::sub);
+    socket_sub.connect("tcp://proxy_pubsub:5558");
+
+    const char* env_usuario = getenv("BOT_NAME");
+    string usuario = (env_usuario) ? string(env_usuario) : "bot_" + to_string(getpid());
+    
+    chat::Message requisicao;
+    requisicao.set_username(usuario);
+    requisicao.set_type(chat::Message::LOGIN);
+    requisicao.set_timestamp(time(nullptr));
+    enviar_requisicao(socket_req, requisicao);
+    cout << ">>> " << usuario << " Logado com sucesso!" << endl;
+
+    EstadoBot estado_atual = SINCRONIZAR_CANAIS;
+    vector<string> canais_disponiveis;
+    vector<string> canais_inscritos;
+    
+    int mensagens_enviadas = 0;
+    string canal_alvo = "";
+    
+    auto ultimo_envio = chrono::steady_clock::now() - chrono::seconds(2); 
 
     while (true) {
-        chat::Message req;
-        req.set_username(user);
-        req.set_timestamp(time(nullptr));
+        
+        zmq::message_t mensagem_topico;
+        if (socket_sub.recv(mensagem_topico, zmq::recv_flags::dontwait)) {
+            zmq::message_t mensagem_dados;
+            
+            if (socket_sub.recv(mensagem_dados, zmq::recv_flags::none)) {} 
+            
+            chat::Message mensagem_publicada;
+            mensagem_publicada.ParseFromArray(mensagem_dados.data(), mensagem_dados.size());
 
-        //Login -> Criar Canal -> Listar
-        if (state == 0) {
-            req.set_type(chat::Message::LOGIN);
-        } else if (state == 1) {
-            req.set_type(chat::Message::CREATE_CHANNEL);
-            req.set_channel("canal_geral");
-        } else {
-            req.set_type(chat::Message::LIST_CHANNELS);
+            auto tempo_recebimento = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
+
+            cout << "\n========================================" << endl;
+            cout << "  NOVA MENSAGEM RECEBIDA [" << mensagem_publicada.channel() << "]" << endl;
+            cout << "----------------------------------------" << endl;
+            cout << "  De:       " << mensagem_publicada.username() << endl;
+            cout << "  Msg:      " << mensagem_publicada.message() << endl;
+            cout << "  T. Envio: " << mensagem_publicada.timestamp() << endl;
+            cout << "  T. Recv:  " << tempo_recebimento << endl;
+            cout << "========================================\n" << endl;
         }
 
-        string serialized;
-        req.SerializeToString(&serialized);
-        socket.send(zmq::buffer(serialized), zmq::send_flags::none);
+        switch (estado_atual) {
+            case SINCRONIZAR_CANAIS: {
+                requisicao.set_type(chat::Message::LIST_CHANNELS);
+                chat::Message resposta = enviar_requisicao(socket_req, requisicao);
+                
+                canais_disponiveis.clear();
+                for (int i = 0; i < resposta.channels_size(); i++) {
+                    canais_disponiveis.push_back(resposta.channels(i));
+                }
+                estado_atual = AVALIAR_REGRAS;
+                break;
+            }
 
-        zmq::message_t reply;
-        auto res_recv = socket.recv(reply, zmq::recv_flags::none);
+            case AVALIAR_REGRAS: {
+                // REGRA 1.
+                if (canais_disponiveis.size() < 5) {
+                    requisicao.set_type(chat::Message::CREATE_CHANNEL);
+                    requisicao.set_channel("canal_" + to_string(rand() % 1000));
+                    enviar_requisicao(socket_req, requisicao);
+                    estado_atual = SINCRONIZAR_CANAIS; // Volta pra atualizar a lista
+                } 
+                // REGRA 2.
+                else if (canais_inscritos.size() < 3) {
+                    for (const auto& canal : canais_disponiveis) {
+                        if (find(canais_inscritos.begin(), canais_inscritos.end(), canal) == canais_inscritos.end()) {
+                            socket_sub.set(zmq::sockopt::subscribe, canal);
+                            canais_inscritos.push_back(canal);
+                            cout << "[!] " << usuario << " se inscreveu no canal: " << canal << endl;
+                            break;
+                        }
+                    }
+                    estado_atual = SINCRONIZAR_CANAIS; 
+                } 
+                // REGRA 3.
+                else {
+                    canal_alvo = canais_disponiveis[rand() % canais_disponiveis.size()];
+                    mensagens_enviadas = 0;
+                    cout << "\n>>> " << usuario << " iniciando 10 publicacoes no [" << canal_alvo << "]\n" << endl;
+                    estado_atual = PUBLICANDO;
+                }
+                break;
+            }
 
-        if (res_recv) {
-            chat::Message res;
-            res.ParseFromArray(reply.data(), reply.size());
-            log_message("RESPOSTA RECEBIDA", res);
+            case PUBLICANDO: {
+                auto agora = chrono::steady_clock::now();
+                auto tempo_passado = chrono::duration_cast<chrono::milliseconds>(agora - ultimo_envio).count();
 
-            // Avança o estado até chegar em 2 (Listar)
-            if (state < 2){
-		state++;
-	    }
+                if (tempo_passado >= 1000) {
+                    requisicao.set_type(chat::Message::PUBLISH);
+                    requisicao.set_channel(canal_alvo);
+                    requisicao.set_message("Mensagem de teste " + to_string(mensagens_enviadas + 1));
+                    requisicao.set_timestamp(time(nullptr));
+                    
+                    enviar_requisicao(socket_req, requisicao);
+                    
+                    ultimo_envio = agora; // Zera o cronômetro
+                    mensagens_enviadas++;
+
+                    // Se já mandou as 10, reinicia o ciclo
+                    if (mensagens_enviadas >= 10) {
+                        estado_atual = SINCRONIZAR_CANAIS;
+                    }
+                }
+                break;
+            }
         }
 
-        // Delay para facilitar o acompanhamento no terminal
-        this_thread::sleep_for(chrono::seconds(5));
+        usleep(10000);
     }
+
     return 0;
 }

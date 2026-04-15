@@ -8,6 +8,7 @@ message Message {
     CREATE_CHANNEL = 1;
     LIST_CHANNELS = 2;
     RESPONSE = 3;  
+    PUBLISH = 4;
   }
 
   Type type = 1;

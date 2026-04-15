@@ -1,21 +1,21 @@
 # --- C++ (Cliente) ---
 *.o
 *.out
-/cliente/cliente
-/cliente/message.pb.h
-/cliente/message.pb.cc
+src/cliente/cliente
+src/cliente/message.pb.h
+src/cliente/message.pb.cc
 
 # --- Python (Servidor/Broker) ---
 __pycache__/
 *.py[cod]
 *$py.class
-/servidor/message_pb2.py
-/broker/message_pb2.py
+src/servidor/message_pb2.py
+src/broker/message_pb2.py
 
 # --- Docker ---
 .dockerignore
 
 # Ignora as pastas de volume criadas pelo docker-compose
-/data_srv1/
-/data_srv2/
+src/data_srv1/
+src/data_srv2/
 
