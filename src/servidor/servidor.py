@@ -23,54 +23,72 @@ socket_rep.connect("tcp://broker:5556")
 socket_pub = context.socket(zmq.PUB)
 socket_pub.connect("tcp://proxy_pubsub:5557")
 
+socket_ref = context.socket(zmq.REQ)
+socket_ref.connect("tcp://referencia:5559")
+
+socket_ref.send_string(f"nome:{SERVER_ID}")
+resposta_rank = socket_ref.recv_string()
+meu_rank = int(resposta_rank.split(":")[1])
+print(f"--- Servidor {SERVER_ID} Iniciado | Rank: {meu_rank} ---")
+
 channels = set()
 counter = 0
-print(f"--- Servidor {SERVER_ID} Iniciado (REP: broker, PUB: proxy_pubsub) ---")
+mensagens_processadas = 0
 
 while True:
     raw_data = socket_rep.recv()
+    mensagens_processadas += 1
     
     req = message_pb2.Message()
     req.ParseFromString(raw_data)
+    
+    counter = max(counter, req.counter)
     
     res = message_pb2.Message()
     res.timestamp = int(time.time())
     res.type = message_pb2.Message.RESPONSE
     res.username = req.username
-    res.counter = counter
     
     if req.type == message_pb2.Message.LOGIN:
         save_event("LOGIN", req.username)
         res.message = "LOGIN_OK"
-        counter += 1
 
     elif req.type == message_pb2.Message.CREATE_CHANNEL:
         if req.channel and req.channel not in channels:
             channels.add(req.channel)
             save_event("CHANNEL_CREATED", req.username, req.channel)
             res.message = "CHANNEL_OK"
-            counter += 1
         else:
             res.message = "ERROR: Channel already exists or invalid"
 
     elif req.type == message_pb2.Message.LIST_CHANNELS:
         res.channels.extend(list(channels))
         res.message = "LIST_OK"
-        counter += 1
 
     elif req.type == message_pb2.Message.PUBLISH:
-        print(f"[{SERVER_ID}] Recebeu msg de {req.username} para o canal {req.channel}")
-        
         if req.channel in channels:
-            # Salva no disco
             save_event("PUBLISHED", req.username, f"Canal: {req.channel} | Msg: {req.message}")
             
+            counter += 1
+            req.counter = counter 
+            
             topic = req.channel.encode('utf-8')
-            socket_pub.send_multipart([topic, raw_data])
+            socket_pub.send_multipart([topic, req.SerializeToString()])
             
             res.message = "PUBLISH_OK"
-            counter += 1
         else:
             res.message = "ERROR: Channel does not exist"
 
+    counter += 1
+    res.counter = counter
     socket_rep.send(res.SerializeToString())
+
+    if mensagens_processadas % 10 == 0:
+        socket_ref.send_string("list")
+        res_lista = socket_ref.recv_string()
+        
+        socket_ref.send_string(f"heartbeat:{SERVER_ID}")
+        res_beat = socket_ref.recv_string()
+        if res_beat.startswith("OK"):
+            hora_referencia = int(res_beat.split(":")[1])
+            print(f"[{SERVER_ID}] Heartbeat OK | Hora Ref: {hora_referencia} | Lista: {res_lista.split(':')[1]}")

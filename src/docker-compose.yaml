@@ -67,6 +67,14 @@ services:
     networks:
       - msg_network
 
+  referencia:
+    build:
+      context: ./referencia
+      dockerfile: Dockerfile
+    container_name: referencia
+    networks:
+      - msg_network
+
 networks:
   msg_network:
     driver: bridge

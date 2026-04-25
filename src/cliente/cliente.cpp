@@ -10,23 +10,24 @@
 
 using namespace std;
 
-// Função auxiliar para enviar e receber o padrão REQ/REP
-chat::Message enviar_requisicao(zmq::socket_t& socket, chat::Message& requisicao) {
+chat::Message enviar_requisicao(zmq::socket_t& socket, chat::Message& requisicao, int& relogio_logico) {
+    relogio_logico++;
+    requisicao.set_counter(relogio_logico);
+
     string serializada;
     requisicao.SerializeToString(&serializada);
     socket.send(zmq::buffer(serializada), zmq::send_flags::none);
 
     zmq::message_t resposta_bruta;
-    
-    // O "if" vazio engana o compilador e silencia os erros de segurança do ZeroMQ
     if (socket.recv(resposta_bruta, zmq::recv_flags::none)) {}
 
     chat::Message resposta;
     resposta.ParseFromArray(resposta_bruta.data(), resposta_bruta.size());
+    
+    relogio_logico = std::max(relogio_logico, (int)resposta.counter());
     return resposta;
 }
 
-// Estados da nossa Máquina de Estados principal
 enum EstadoBot {
     SINCRONIZAR_CANAIS,
     AVALIAR_REGRAS,
@@ -34,18 +35,18 @@ enum EstadoBot {
 };
 
 int main() {
-    srand(time(nullptr)); // Inicializa o gerador de números aleatórios
+    srand(time(nullptr));
 
     zmq::context_t contexto(1);
     
-    // Socket REQ 
     zmq::socket_t socket_req(contexto, zmq::socket_type::req);
     socket_req.connect("tcp://broker:5555");
 
-    // Socket SUB 
     zmq::socket_t socket_sub(contexto, zmq::socket_type::sub);
     socket_sub.connect("tcp://proxy_pubsub:5558");
-    int counter = 0;
+    
+    int relogio_logico = 0;
+    
     const char* env_usuario = getenv("BOT_NAME");
     string usuario = (env_usuario) ? string(env_usuario) : "bot_" + to_string(getpid());
         
@@ -53,8 +54,8 @@ int main() {
     requisicao.set_username(usuario);
     requisicao.set_type(chat::Message::LOGIN);
     requisicao.set_timestamp(time(nullptr));
-    requisicao.set_counter(counter);
-    enviar_requisicao(socket_req, requisicao);
+    
+    enviar_requisicao(socket_req, requisicao, relogio_logico);
     cout << ">>> " << usuario << " Logado com sucesso!" << endl;
 
     EstadoBot estado_atual = SINCRONIZAR_CANAIS;
@@ -77,6 +78,8 @@ int main() {
             chat::Message mensagem_publicada;
             mensagem_publicada.ParseFromArray(mensagem_dados.data(), mensagem_dados.size());
 
+            relogio_logico = std::max(relogio_logico, (int)mensagem_publicada.counter());
+
             auto tempo_recebimento = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
 
             cout << "\n========================================" << endl;
@@ -86,14 +89,14 @@ int main() {
             cout << "  Msg:      " << mensagem_publicada.message() << endl;
             cout << "  T. Envio: " << mensagem_publicada.timestamp() << endl;
             cout << "  T. Recv:  " << tempo_recebimento << endl;
-            cout << "  COUNT" << mensagem_publicada.counter() << endl;
+            cout << "  COUNT:    " << mensagem_publicada.counter() << endl;
             cout << "========================================\n" << endl;
         }
 
         switch (estado_atual) {
             case SINCRONIZAR_CANAIS: {
                 requisicao.set_type(chat::Message::LIST_CHANNELS);
-                chat::Message resposta = enviar_requisicao(socket_req, requisicao);
+                chat::Message resposta = enviar_requisicao(socket_req, requisicao, relogio_logico);
                 
                 canais_disponiveis.clear();
                 for (int i = 0; i < resposta.channels_size(); i++) {
@@ -104,15 +107,12 @@ int main() {
             }
 
             case AVALIAR_REGRAS: {
-                // REGRA 1.
                 if (canais_disponiveis.size() < 5) {
                     requisicao.set_type(chat::Message::CREATE_CHANNEL);
                     requisicao.set_channel("canal_" + to_string(rand() % 1000));
-                    enviar_requisicao(socket_req, requisicao);
-                    estado_atual = SINCRONIZAR_CANAIS; // Volta pra atualizar a lista
-		    counter++;
+                    enviar_requisicao(socket_req, requisicao, relogio_logico);
+                    estado_atual = SINCRONIZAR_CANAIS; 
                 } 
-                // REGRA 2.
                 else if (canais_inscritos.size() < 3) {
                     for (const auto& canal : canais_disponiveis) {
                         if (find(canais_inscritos.begin(), canais_inscritos.end(), canal) == canais_inscritos.end()) {
@@ -123,15 +123,12 @@ int main() {
                         }
                     }
                     estado_atual = SINCRONIZAR_CANAIS; 
-		    counter++;
                 } 
-                // REGRA 3.
                 else {
                     canal_alvo = canais_disponiveis[rand() % canais_disponiveis.size()];
                     mensagens_enviadas = 0;
                     cout << "\n>>> " << usuario << " iniciando 10 publicacoes no [" << canal_alvo << "]\n" << endl;
                     estado_atual = PUBLICANDO;
-		    counter++;
                 }
                 break;
             }
@@ -146,12 +143,11 @@ int main() {
                     requisicao.set_message("Mensagem de teste " + to_string(mensagens_enviadas + 1));
                     requisicao.set_timestamp(time(nullptr));
                     
-                    enviar_requisicao(socket_req, requisicao);
+                    enviar_requisicao(socket_req, requisicao, relogio_logico);
                     
-                    ultimo_envio = agora; // Zera o cronômetro
+                    ultimo_envio = agora;
                     mensagens_enviadas++;
 
-                    // Se já mandou as 10, reinicia o ciclo
                     if (mensagens_enviadas >= 10) {
                         estado_atual = SINCRONIZAR_CANAIS;
                     }
