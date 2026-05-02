@@ -33,8 +33,7 @@ while True:
             nome_srv = partes[1]
             if nome_srv in servidores:
                 servidores[nome_srv]["last_beat"] = time.time()
-                hora_certa = int(time.time())
-                socket.send_string(f"OK:{hora_certa}")
+                socket.send_string("OK")
             else:
                 socket.send_string("ERROR: Servidor desconhecido")
 

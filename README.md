@@ -94,3 +94,43 @@ A inicialização requer a compilação do novo container de Referência e do c�
 ```bash
 docker-compose up --build
 ```
+
+# Projeto BBS/IRC Moderno - Parte 4
+
+## 1. Introdução
+A quarta etapa foca na descentralização e no consenso entre os servidores físicos. O serviço de referência cessa a sua função de fornecedor de tempo, passando essa responsabilidade exclusivamente para os próprios nós de armazenamento. O sistema adota mecanismos de eleição para determinar um líder (Coordenador) e procedimentos de sincronização periódica de relógios físicos baseados em algoritmos clássicos de Sistemas Distribuídos.
+
+## 2. Escolhas Técnicas
+
+### Algoritmo de Eleição (Valentão / Bully Algorithm)
+Para a escolha do coordenador entre os servidores, implementou-se o Algoritmo do Valentão, baseando-se no Rank previamente fornecido pelo serviço de Referência:
+* Quando um servidor inicia (ou deteta a queda do atual coordenador), ele envia uma requisição `eleição` a todos os servidores ativos cujo Rank seja superior ao seu.
+* Se nenhum servidor de Rank superior responder (indicando que estão inativos), o servidor atual assume a liderança e emite um evento de publicação no tópico `servers` via Pub/Sub, notificando toda a rede sobre a sua vitória.
+
+### Sincronização de Relógio Físico (Algoritmo de Berkeley)
+A sincronização temporal foi transferida da Referência para o Coordenador eleito. Seguindo os requisitos, os servidores não-coordenadores monitorizam o seu tráfego e, a cada 15 mensagens processadas, realizam uma requisição ponta a ponta (peer-to-peer) para o Coordenador atual exigindo a hora correta.
+* Caso o tempo de resposta exceda o *timeout* definido, assume-se que o Coordenador falhou, despoletando imediatamente um novo processo de Eleição.
+
+### Arquitetura de Event Loop Não-Bloqueante no Servidor
+Para suportar o tráfego regular de clientes (Broker) ao mesmo tempo em que escuta requisições de outros servidores e publicações no Pub/Sub, a arquitetura do servidor em Python foi refatorada para ser estritamente assíncrona.
+* Substituiu-se a receção bloqueante tradicional por leituras com a flag `zmq.NOBLOCK` agrupadas em blocos `try...except zmq.error.Again`.
+* Esta técnica reproduz em Python a mesma lógica de *Event Loop* baseada na flag `dontwait` utilizada anteriormente nos clientes em C++, mantendo uma arquitetura de projeto coesa e performática, além de evitar deadlocks na rede distribuída.
+
+## 3. Teste de Eleição e Tolerância a Falhas Distribuída
+Para comprovar o funcionamento simultâneo do Algoritmo de Eleição e do Algoritmo de Sincronização, um novo teste de inoperância de líder foi estipulado:
+1. Iniciar o ecossistema. O Servidor com maior Rank (Servidor 2) autodeclara-se o vencedor da eleição inicial, e os restantes reconhecem-no como Coordenador.
+2. Em seguida, num segundo terminal no hospedeiro, forçar intencionalmente o encerramento do coordenador:
+
+```bash
+docker stop servidor2
+```
+
+3. No terminal principal, os logs exibirão o Servidor 1 em operação normal. Quando este atingir a marca estipulada de 15 mensagens processadas, efetuará o pedido de sincronização do relógio ao Coordenador (Servidor 2).
+4. Diante do *timeout* pela ausência do líder, o Servidor 1 imprime imediatamente o alerta de que o líder falhou, convoca uma nova eleição, verifica a ausência de concorrência com Ranks superiores e assume formalmente o cargo de Coordenador para salvaguardar o sistema. A este evento sobrepõe-se a limpeza de registos no nó de Referência (Heartbeat *timeout* de 15 segundos introduzido na Parte 3).
+
+## 4. Como Executar
+A subida completa da infraestrutura final obedece ao comando habitual:
+
+```bash
+docker-compose up --build
+```
