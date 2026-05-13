@@ -33,6 +33,8 @@ socket_peer_rep.bind("tcp://*:5560")
 socket_sub_servers = context.socket(zmq.SUB)
 socket_sub_servers.connect("tcp://proxy_pubsub:5558")
 socket_sub_servers.setsockopt_string(zmq.SUBSCRIBE, "servers")
+# PARTE 5: Inscreve o servidor para ouvir as replicas dos vizinhos
+socket_sub_servers.setsockopt_string(zmq.SUBSCRIBE, "replicacao")
 
 # Registro inicial na referencia
 socket_ref.send_string(f"nome:{SERVER_ID}")
@@ -99,12 +101,16 @@ while True:
         
         if req.type == message_pb2.Message.LOGIN:
             save_event("LOGIN", req.username)
+            msg_rep = f"{SERVER_ID}|LOGIN|{req.username}|"
+            socket_pub.send_multipart([b"replicacao", msg_rep.encode('utf-8')])
             res.message = "LOGIN_OK"
 
         elif req.type == message_pb2.Message.CREATE_CHANNEL:
             if req.channel and req.channel not in channels:
                 channels.add(req.channel)
                 save_event("CHANNEL_CREATED", req.username, req.channel)
+                msg_rep = f"{SERVER_ID}|CHANNEL_CREATED|{req.username}|{req.channel}"
+                socket_pub.send_multipart([b"replicacao", msg_rep.encode('utf-8')])
                 res.message = "CHANNEL_OK"
             else:
                 res.message = "ERROR: Channel already exists"
@@ -117,6 +123,9 @@ while True:
             if req.channel in channels:
                 save_event("PUBLISHED", req.username, f"Canal: {req.channel}")
                 
+                msg_rep = f"{SERVER_ID}|PUBLISHED|{req.username}|Canal: {req.channel}"
+                socket_pub.send_multipart([b"replicacao", msg_rep.encode('utf-8')])
+                
                 # Regra 1 do Relogio Lógico: Incrementa antes de enviar para o Proxy
                 counter += 1
                 req.counter = counter 
@@ -126,12 +135,10 @@ while True:
             else:
                 res.message = "ERROR: Channel does not exist"
 
-        # Regra 1: Incrementa antes de enviar a resposta ao cliente
         counter += 1
         res.counter = counter
         socket_rep.send(res.SerializeToString())
 
-        # Rotina de Heartbeat (a cada 10 requisições)
         if mensagens_processadas % 10 == 0:
             socket_ref.send_string(f"heartbeat:{SERVER_ID}")
             socket_ref.recv_string()
@@ -167,9 +174,27 @@ while True:
 
     try:
         topico = socket_sub_servers.recv(flags=zmq.NOBLOCK)
-        novo_rei = socket_sub_servers.recv().decode('utf-8')
-        coordenador = novo_rei
-        print(f"[{SERVER_ID}] Recebi o aviso: O novo Coordenador e o {coordenador}")
+        conteudo = socket_sub_servers.recv()
+        
+        if topico == b"servers":
+            novo_rei = conteudo.decode('utf-8')
+            coordenador = novo_rei
+            print(f"[{SERVER_ID}] Recebi o aviso: O novo Coordenador e o {coordenador}")
+            
+        elif topico == b"replicacao":
+            partes = conteudo.decode('utf-8').split('|')
+            origem = partes[0]
+            
+            if origem != SERVER_ID:
+                evento = partes[1]
+                usuario = partes[2]
+                detalhe = partes[3] if len(partes) > 3 else ""
+                
+                if evento == "CHANNEL_CREATED":
+                    channels.add(detalhe)
+                
+                save_event(f"REPLICA_{evento}", usuario, detalhe)
+
     except zmq.error.Again:
         pass
 

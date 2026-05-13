@@ -134,3 +134,40 @@ A subida completa da infraestrutura final obedece ao comando habitual:
 ```bash
 docker-compose up --build
 ```
+
+# Projeto BBS/IRC Moderno - Parte 5
+
+## 1. Introdução
+A quinta e última etapa soluciona o problema de fragmentação do histórico de dados causado pelo balanceamento de carga (round-robin) do Broker. Para garantir que a perda de um servidor não resulte na perda de dados, foi implementado um mecanismo de replicação de dados entre todos os nós de armazenamento, garantindo que todos possuam todas as mensagens.
+
+## 2. Escolhas Técnicas Baseadas na Teoria
+
+Com base nos modelos teóricos de distribuição de conteúdo e consistência abordados em aula, a solução escolhida para o projeto foi a **Consistência Eventual com Réplica Ativa e Atualização por Push**.
+
+### Consistência Eventual
+O projeto não exige que as operações de leitura/escrita retornem bloqueadas até que toda a rede confirme a cópia. Adotou-se o modelo de **Consistência Eventual**, o que significa que os data stores (nossos servidores) serão consistentes dado que:
+* Quando não houver novas atualizações (escritas) concorrentes por um curto período de tempo, todas as atualizações anteriores terão sido propagadas com sucesso para todas as réplicas (os arquivos de log ficarão idênticos).
+
+### Réplica Ativa (Distribuição de Conteúdo)
+Em vez de realizar uma *Réplica Passiva* (copiar todo o arquivo de banco de dados entre os nós constantemente), optou-se pela **Réplica Ativa**.
+* **Como foi implementado:** Quando um servidor recebe a requisição do cliente, ele propaga a *operação de atualização* em si (ex: o evento `PUBLISHED`, quem publicou e em qual canal) para os demais servidores executarem.
+
+### Atualização por Push
+A forma de propagação dessa atualização ativa utiliza o modelo de **Push** (iniciado pelo servidor que recebe os dados).
+* **Como funciona no projeto:** A propagação é iniciada pelo servidor que recebeu a escrita original do Broker. Ele ativamente "empurra" a operação para a rede através de um tópico exclusivo no Proxy Pub/Sub (`replicacao`). Os demais servidores atuam como assinantes e aceitam a propagação dos dados, processando a escrita nos seus históricos locais com a flag `REPLICA_`.
+
+## 3. Adaptação ao Projeto
+Não foi necessário alterar profundamente a estrutura do ecossistema. A teoria de *Réplica Ativa por Push* encaixou-se perfeitamente no padrão XPUB/XSUB já existente. A adaptação consistiu em fazer com que os próprios servidores se tornassem assinantes (SUB) do proxy, escutando ativamente o tráfego de replicação uns dos outros de forma não-bloqueante no Event Loop.
+
+## 4. Teste de Replicação e Consistência
+A replicação pode ser confirmada observando a consistência dos dados armazenados nos volumes do Docker:
+1. Inicie o sistema e execute os Clientes, gerando publicações concorrentes.
+2. Analise a pasta local `data_srv1` e abra o arquivo `storage_server_1.txt`.
+3. Analise a pasta local `data_srv2` e abra o arquivo `storage_server_2.txt`.
+4. É garantido que **ambos os arquivos conterão as mesmas informações**. As mensagens recebidas primariamente pelo Servidor 1 constarão como `PUBLISHED`, e logo em seguida, estarão copiadas no Servidor 2 como `REPLICA_PUBLISHED` (e vice-versa), comprovando a atualização por push e o alcance da consistência eventual.
+
+## 5. Como Executar
+A subida completa da versão final do projeto obedece ao comando habitual:
+```bash
+docker-compose up --build
+```
