@@ -33,7 +33,6 @@ socket_peer_rep.bind("tcp://*:5560")
 socket_sub_servers = context.socket(zmq.SUB)
 socket_sub_servers.connect("tcp://proxy_pubsub:5558")
 socket_sub_servers.setsockopt_string(zmq.SUBSCRIBE, "servers")
-# PARTE 5: Inscreve o servidor para ouvir as replicas dos vizinhos
 socket_sub_servers.setsockopt_string(zmq.SUBSCRIBE, "replicacao")
 
 # Registro inicial na referencia
@@ -44,8 +43,8 @@ print(f"--- Servidor {SERVER_ID} Iniciado | Rank: {meu_rank} ---")
 
 channels = set()
 counter = 0
-mensagens_processadas = 0
 coordenador = None
+ultimo_heartbeat = time.time()
 
 def iniciar_eleicao():
     global coordenador
@@ -82,11 +81,11 @@ def iniciar_eleicao():
         socket_pub.send_multipart([b"servers", SERVER_ID.encode('utf-8')])
 
 iniciar_eleicao()
+ultimo_heartbeat = time.time()  
 
 while True:
     try:
         raw_data = socket_rep.recv(flags=zmq.NOBLOCK)
-        mensagens_processadas += 1
         
         req = message_pb2.Message()
         req.ParseFromString(raw_data)
@@ -135,32 +134,38 @@ while True:
             else:
                 res.message = "ERROR: Channel does not exist"
 
+        # Regra 1: Incrementa antes de enviar a resposta ao cliente
         counter += 1
         res.counter = counter
         socket_rep.send(res.SerializeToString())
 
-        if mensagens_processadas % 10 == 0:
-            socket_ref.send_string(f"heartbeat:{SERVER_ID}")
-            socket_ref.recv_string()
-
-        if mensagens_processadas % 15 == 0:
-            if coordenador and coordenador != SERVER_ID:
-                req_hora = context.socket(zmq.REQ)
-                req_hora.setsockopt(zmq.RCVTIMEO, 2000)
-                req_hora.connect(f"tcp://servidor{coordenador}:5560")
-                try:
-                    req_hora.send_string("relogio")
-                    hora = req_hora.recv_string()
-                    print(f"[{SERVER_ID}] Berkeley: Hora sincronizada com o coordenador: {hora}")
-                except:
-                    print(f"[{SERVER_ID}] Coordenador sumiu! Puxando nova eleicao...")
-                    coordenador = None
-                    iniciar_eleicao()
-                finally:
-                    req_hora.close()
-
     except zmq.error.Again:
         pass
+
+    agora = time.time()
+    if agora - ultimo_heartbeat >= 5:
+        try:
+            socket_ref.send_string(f"heartbeat:{SERVER_ID}", flags=zmq.NOBLOCK)
+            socket_ref.recv_string()
+        except zmq.error.Again:
+            pass  
+        ultimo_heartbeat = agora
+
+        if coordenador and coordenador != SERVER_ID:
+            req_hora = context.socket(zmq.REQ)
+            req_hora.setsockopt(zmq.RCVTIMEO, 2000)
+            req_hora.connect(f"tcp://servidor{coordenador}:5560")
+            try:
+                req_hora.send_string("relogio")
+                hora = req_hora.recv_string()
+                print(f"[{SERVER_ID}] Berkeley: Hora sincronizada com o coordenador: {hora}")
+            except:
+                print(f"[{SERVER_ID}] Coordenador sumiu! Puxando nova eleicao...")
+                coordenador = None
+                iniciar_eleicao()
+                ultimo_heartbeat = time.time() 
+            finally:
+                req_hora.close()
 
     try:
         msg_peer = socket_peer_rep.recv_string(flags=zmq.NOBLOCK)
@@ -169,6 +174,7 @@ while True:
         elif msg_peer == "eleicao":
             socket_peer_rep.send_string("OK")
             iniciar_eleicao()
+            ultimo_heartbeat = time.time()
     except zmq.error.Again:
         pass
 
